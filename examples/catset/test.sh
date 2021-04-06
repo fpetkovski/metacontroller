@@ -15,7 +15,7 @@ trap cleanup EXIT
 set -ex
 
 cs="catsets"
-finalizer="metacontroller.io/catset-test"
+finalizer="metacontroller.io/pkg/catset-test"
 
 echo "Install controller..."
 kubectl apply -k "${crd_version}"

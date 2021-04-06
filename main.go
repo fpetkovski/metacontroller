@@ -35,8 +35,7 @@ import (
 	"k8s.io/component-base/metrics/legacyregistry"
 	_ "k8s.io/component-base/metrics/prometheus/clientgo"
 
-	"metacontroller.io/options"
-	"metacontroller.io/server"
+	"metacontroller.io/pkg/server"
 
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 )
@@ -81,7 +80,7 @@ func main() {
 	config.QPS = float32(*clientGoQPS)
 	config.Burst = *clientGoBurst
 
-	options := options.Options{
+	options := server.Options{
 		Config:            config,
 		DiscoveryInterval: *discoveryInterval,
 		InformerRelist:    *informerRelist,

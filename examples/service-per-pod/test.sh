@@ -12,7 +12,7 @@ trap cleanup EXIT
 
 set -ex
 
-finalizer="metacontroller.io/service-per-pod-test"
+finalizer="metacontroller.io/pkg/service-per-pod-test"
 
 echo "Install controller..."
 kubectl apply -k manifest
