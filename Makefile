@@ -62,7 +62,7 @@ generate_crds:
 # https://github.com/kubernetes/community/blob/master/contributors/devel/api_changes.md#generate-code
 
 .PHONY: generated_files
-generated_files: deepcopy clientset lister informer
+generated_files: deepcopy
 
 # also builds vendored version of deepcopy-gen tool
 .PHONY: deepcopy
@@ -73,37 +73,3 @@ deepcopy:
 		--input-dirs $(PKG)/pkg/apis/$(API_GROUPS) \
 		--go-header-file ./hack/boilerplate.go.txt \
 		--output-file-base zz_generated.deepcopy
-
-# also builds vendored version of client-gen tool
-.PHONY: clientset
-clientset:
-	@go get k8s.io/code-generator/cmd/client-gen@"${CODE_GENERATOR_VERSION}"
-	@echo "+ Generating clientsets for $(API_GROUPS)"
-	@client-gen \
-		--fake-clientset=false \
-		--go-header-file ./hack/boilerplate.go.txt \
-		--input $(API_GROUPS) \
-		--input-base $(PKG)/pkg/apis \
-		--clientset-path $(PKG)/pkg/client/generated/clientset
-
-# also builds vendored version of lister-gen tool
-.PHONY: lister
-lister:
-	@go get k8s.io/code-generator/cmd/lister-gen@"${CODE_GENERATOR_VERSION}"
-	@echo "+ Generating lister for $(API_GROUPS)"
-	@lister-gen \
-		--input-dirs $(PKG)/pkg/apis/$(API_GROUPS) \
-		--go-header-file ./hack/boilerplate.go.txt \
-		--output-package $(PKG)/pkg/client/generated/lister
-
-# also builds vendored version of informer-gen tool
-.PHONY: informer
-informer:
-	@go get k8s.io/code-generator/cmd/informer-gen@"${CODE_GENERATOR_VERSION}"
-	@echo "+ Generating informer for $(API_GROUPS)"
-	@informer-gen \
-		--input-dirs $(PKG)/pkg/apis/$(API_GROUPS) \
-		--go-header-file ./hack/boilerplate.go.txt \
-		--output-package $(PKG)/pkg/client/generated/informer \
-		--versioned-clientset-package $(PKG)/pkg/client/generated/clientset/internalclientset \
-		--listers-package $(PKG)/pkg/client/generated/lister

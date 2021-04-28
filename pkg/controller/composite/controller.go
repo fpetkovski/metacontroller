@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"metacontroller.io/pkg/events"
@@ -40,8 +42,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	"metacontroller.io/pkg/apis/metacontroller/v1alpha1"
-	mcclientset "metacontroller.io/pkg/client/generated/clientset/internalclientset"
-	mclisters "metacontroller.io/pkg/client/generated/lister/metacontroller/v1alpha1"
 	"metacontroller.io/pkg/controller/common"
 	"metacontroller.io/pkg/controller/common/customize"
 	"metacontroller.io/pkg/controller/common/finalizer"
@@ -53,17 +53,16 @@ import (
 )
 
 type parentController struct {
+	k8sClient client.Client
+
 	cc *v1alpha1.CompositeController
 
 	resources      *dynamicdiscovery.ResourceMap
 	parentResource *dynamicdiscovery.APIResource
 
-	mcClient       mcclientset.Interface
 	dynClient      *dynamicclientset.Clientset
 	parentClient   *dynamicclientset.ResourceClient
 	parentInformer *dynamicinformer.ResourceInformer
-
-	revisionLister mclisters.ControllerRevisionLister
 
 	stopCh, doneCh chan struct{}
 	queue          workqueue.RateLimitingInterface
@@ -79,12 +78,11 @@ type parentController struct {
 }
 
 func newParentController(
+	k8sClient client.Client,
 	resources *dynamicdiscovery.ResourceMap,
 	dynClient *dynamicclientset.Clientset,
 	dynInformers *dynamicinformer.SharedInformerFactory,
 	eventRecorder record.EventRecorder,
-	mcClient mcclientset.Interface,
-	revisionLister mclisters.ControllerRevisionLister,
 	cc *v1alpha1.CompositeController,
 	numWorkers int,
 ) (pc *parentController, newErr error) {
@@ -138,15 +136,14 @@ func newParentController(
 	parentInformers.Set(parentGroupVersion.WithResource(parentResource.Name), parentInformer)
 
 	pc = &parentController{
+		k8sClient:      k8sClient,
 		cc:             cc,
 		resources:      resources,
-		mcClient:       mcClient,
 		dynClient:      dynClient,
 		childInformers: childInformers,
 		parentClient:   parentClient,
 		parentInformer: parentInformer,
 		parentResource: parentResource,
-		revisionLister: revisionLister,
 		updateStrategy: updateStrategy,
 		queue:          workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "CompositeController-"+cc.Name),
 		numWorkers:     numWorkers,

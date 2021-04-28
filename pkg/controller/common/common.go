@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"strings"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
@@ -31,8 +29,6 @@ import (
 	"metacontroller.io/pkg/events"
 
 	"k8s.io/client-go/tools/record"
-	mcclientset "metacontroller.io/pkg/client/generated/clientset/internalclientset"
-	mcinformers "metacontroller.io/pkg/client/generated/informer/externalversions"
 	dynamicclientset "metacontroller.io/pkg/dynamic/clientset"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -56,25 +52,19 @@ func init() {
 
 // ControllerContext holds various object related to interacting with kubernetes cluster
 type ControllerContext struct {
-	// K8sClient is a client used to interact with the Kubernetes API
-	K8sClient         client.Client
-	Resources         *dynamicdiscovery.ResourceMap
-	DynClient         *dynamicclientset.Clientset
-	DynInformers      *dynamicinformer.SharedInformerFactory
-	McInformerFactory mcinformers.SharedInformerFactory
-	McClient          mcclientset.Interface
-	EventRecorder     record.EventRecorder
-	Broadcaster       record.EventBroadcaster
-	configuration     options.Configuration
+	Resources     *dynamicdiscovery.ResourceMap
+	DynClient     *dynamicclientset.Clientset
+	DynInformers  *dynamicinformer.SharedInformerFactory
+	EventRecorder record.EventRecorder
+	Broadcaster   record.EventBroadcaster
+	configuration options.Configuration
 }
 
 // NewControllerContext creates a new ControllerContext using given Configuration and metacontroller client
-func NewControllerContext(configuration options.Configuration, mcClient *mcclientset.Clientset) (*ControllerContext, error) {
+func NewControllerContext(configuration options.Configuration) (*ControllerContext, error) {
 	// Periodically refresh discovery to pick up newly-installed resources.
 	dc := discovery.NewDiscoveryClientForConfigOrDie(configuration.RestConfig)
 	resources := dynamicdiscovery.NewResourceMap(dc)
-
-	mcInformerFactory := mcinformers.NewSharedInformerFactory(mcClient, configuration.InformerRelist)
 
 	// Create dynamic clientset (factory for dynamic clients).
 	dynClient, err := dynamicclientset.New(configuration.RestConfig, resources)
@@ -92,21 +82,13 @@ func NewControllerContext(configuration options.Configuration, mcClient *mcclien
 	}
 	recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: "metacontroller"})
 
-	// Create a new Kubernetes client for interacting with the Kubernetes API
-	k8sClient, err := client.New(configuration.RestConfig, client.Options{})
-	if err != nil {
-		return nil, err
-	}
-
 	return &ControllerContext{
-		K8sClient:         k8sClient,
-		Resources:         resources,
-		DynClient:         dynClient,
-		DynInformers:      dynInformers,
-		McInformerFactory: mcInformerFactory,
-		EventRecorder:     recorder,
-		Broadcaster:       broadcaster,
-		configuration:     configuration,
+		Resources:     resources,
+		DynClient:     dynClient,
+		DynInformers:  dynInformers,
+		EventRecorder: recorder,
+		Broadcaster:   broadcaster,
+		configuration: configuration,
 	}, nil
 }
 
@@ -115,9 +97,6 @@ func NewControllerContext(configuration options.Configuration, mcClient *mcclien
 func (controllerContext ControllerContext) Start() {
 	// We don't care about stopping this cleanly since it has no external effects.
 	controllerContext.Resources.Start(controllerContext.configuration.DiscoveryInterval)
-	// Start all requested informers.
-	// We don't care about stopping this cleanly since it has no external effects.
-	controllerContext.McInformerFactory.Start(nil)
 }
 
 func (controllerContext ControllerContext) Stop() {

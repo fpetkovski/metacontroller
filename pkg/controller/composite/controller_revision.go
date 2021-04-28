@@ -17,6 +17,7 @@ limitations under the License.
 package composite
 
 import (
+	"context"
 	"crypto/sha1" // #nosec
 	"encoding/hex"
 	"fmt"
@@ -24,12 +25,13 @@ import (
 	"strings"
 	"sync"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"k8s.io/klog/v2"
 	"metacontroller.io/pkg/controller/common"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
 
@@ -57,15 +59,17 @@ func (pc *parentController) claimRevisions(parent *unstructured.Unstructured) ([
 	canAdoptFunc := pc.canAdoptFunc(parent)
 
 	// List all ControllerRevisions in the parent object's namespace.
-	all, err := pc.revisionLister.ControllerRevisions(parent.GetNamespace()).List(labels.Everything())
+	var all v1alpha1.ControllerRevisionList
+	err = pc.k8sClient.List(context.Background(), &all, &client.ListOptions{
+		Namespace: parent.GetNamespace(),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("can't list ControllerRevisions: %v", err)
 	}
 
 	// Handle orphan/adopt and filter by owner+selector.
-	client := pc.mcClient.MetacontrollerV1alpha1().ControllerRevisions(parent.GetNamespace())
-	crm := dynamiccontrollerref.NewControllerRevisionManager(client, parent, selector, parentGVK, canAdoptFunc)
-	revisions, err := crm.ClaimControllerRevisions(all)
+	crm := dynamiccontrollerref.NewControllerRevisionManager(pc.k8sClient, parent, selector, parentGVK, canAdoptFunc)
+	revisions, err := crm.ClaimControllerRevisions(all.Items)
 	if err != nil {
 		return nil, fmt.Errorf("can't claim ControllerRevisions: %v", err)
 	}
@@ -247,8 +251,6 @@ func (pc *parentController) syncRevisions(parent *unstructured.Unstructured, obs
 }
 
 func (pc *parentController) manageRevisions(parent *unstructured.Unstructured, observedRevisions, desiredRevisions []*v1alpha1.ControllerRevision) error {
-	client := pc.mcClient.MetacontrollerV1alpha1().ControllerRevisions(parent.GetNamespace())
-
 	// Build maps for convenient lookup by object name.
 	observedMap := make(map[string]*v1alpha1.ControllerRevision, len(observedRevisions))
 	desiredMap := make(map[string]*v1alpha1.ControllerRevision, len(desiredRevisions))
@@ -261,11 +263,11 @@ func (pc *parentController) manageRevisions(parent *unstructured.Unstructured, o
 		observedMap[revision.Name] = revision
 
 		if _, desired := desiredMap[revision.Name]; !desired {
-			opts := &metav1.DeleteOptions{
+			opts := &client.DeleteOptions{
 				Preconditions: &metav1.Preconditions{UID: &revision.UID},
 			}
 			klog.InfoS("Deleting ControllerRevision", "parent_kind", parent.GetKind(), "parent", klog.KObj(parent), "name", revision.GetName())
-			if err := client.Delete(revision.Name, opts); err != nil {
+			if err := pc.k8sClient.Delete(context.Background(), revision, opts); err != nil {
 				return fmt.Errorf("can't delete ControllerRevision %v for %v %v/%v: %v", revision.Name, pc.parentResource.Kind, parent.GetNamespace(), parent.GetName(), err)
 			}
 		}
@@ -283,15 +285,15 @@ func (pc *parentController) manageRevisions(parent *unstructured.Unstructured, o
 				revision.SetResourceVersion(oldObj.GetResourceVersion())
 				klog.V(5).InfoS("ControllerRevision's resource version updated", "old", oldObj.GetObjectMeta().GetResourceVersion(), "new", revision.GetObjectMeta().GetResourceVersion())
 			}
-			updated, err := client.Update(revision)
+			err := pc.k8sClient.Update(context.Background(), revision)
 			if err != nil {
 				return fmt.Errorf("can't update ControllerRevision %v for %v %v/%v: %v", revision.Name, pc.parentResource.Kind, parent.GetNamespace(), parent.GetName(), err)
 			}
-			klog.InfoS("ControllerRevision updated", "parent_kind", parent.GetKind(), "parent", klog.KObj(parent), "name", revision.GetName(), "resource_version", updated.GetResourceVersion())
+			klog.InfoS("ControllerRevision updated", "parent_kind", parent.GetKind(), "parent", klog.KObj(parent), "name", revision.GetName(), "resource_version", revision.GetResourceVersion())
 		} else {
 			// Create
 			klog.InfoS("Creating ControllerRevision", "parent_kind", parent.GetKind(), "parent", klog.KObj(parent), "name", revision.GetName())
-			if _, err := client.Create(revision); err != nil {
+			if err := pc.k8sClient.Create(context.Background(), revision); err != nil {
 				return fmt.Errorf("can't create ControllerRevision %v for %v %v/%v: %v", revision.Name, pc.parentResource.Kind, parent.GetNamespace(), parent.GetName(), err)
 			}
 		}

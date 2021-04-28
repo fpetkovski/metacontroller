@@ -17,7 +17,12 @@ limitations under the License.
 package controllerref
 
 import (
+	"context"
 	"fmt"
+
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/klog/v2"
 
@@ -29,17 +34,16 @@ import (
 
 	"k8s.io/utils/pointer"
 	"metacontroller.io/pkg/apis/metacontroller/v1alpha1"
-	client "metacontroller.io/pkg/client/generated/clientset/internalclientset/typed/metacontroller/v1alpha1"
 	k8s "metacontroller.io/pkg/third_party/kubernetes"
 )
 
 type ControllerRevisionManager struct {
 	k8s.BaseControllerRefManager
 	parentKind schema.GroupVersionKind
-	client     client.ControllerRevisionInterface
+	k8sClient  client.Client
 }
 
-func NewControllerRevisionManager(client client.ControllerRevisionInterface, parent metav1.Object, selector labels.Selector, parentKind schema.GroupVersionKind, canAdopt func() error) *ControllerRevisionManager {
+func NewControllerRevisionManager(k8sClient client.Client, parent metav1.Object, selector labels.Selector, parentKind schema.GroupVersionKind, canAdopt func() error) *ControllerRevisionManager {
 	return &ControllerRevisionManager{
 		BaseControllerRefManager: k8s.BaseControllerRefManager{
 			Controller:   parent,
@@ -47,11 +51,11 @@ func NewControllerRevisionManager(client client.ControllerRevisionInterface, par
 			CanAdoptFunc: canAdopt,
 		},
 		parentKind: parentKind,
-		client:     client,
+		k8sClient:  k8sClient,
 	}
 }
 
-func (m *ControllerRevisionManager) ClaimControllerRevisions(children []*v1alpha1.ControllerRevision) ([]*v1alpha1.ControllerRevision, error) {
+func (m *ControllerRevisionManager) ClaimControllerRevisions(children []v1alpha1.ControllerRevision) ([]*v1alpha1.ControllerRevision, error) {
 	var claimed []*v1alpha1.ControllerRevision
 	var errlist []error
 
@@ -66,13 +70,13 @@ func (m *ControllerRevisionManager) ClaimControllerRevisions(children []*v1alpha
 	}
 
 	for _, child := range children {
-		ok, err := m.ClaimObject(child, match, adopt, release)
+		ok, err := m.ClaimObject(&child, match, adopt, release)
 		if err != nil {
 			errlist = append(errlist, err)
 			continue
 		}
 		if ok {
-			claimed = append(claimed, child)
+			claimed = append(claimed, &child)
 		}
 	}
 	return claimed, utilerrors.NewAggregate(errlist)
@@ -96,7 +100,7 @@ func (m *ControllerRevisionManager) adoptControllerRevision(obj *v1alpha1.Contro
 	// We can't use merge patch because that would replace the whole list.
 	// We can't use JSON patch ops because that wouldn't be idempotent.
 	// The only option is GET/PUT with ResourceVersion.
-	_, err := m.client.UpdateWithRetries(obj, func(obj *v1alpha1.ControllerRevision) bool {
+	_, err := m.UpdateWithRetries(obj, func(obj *v1alpha1.ControllerRevision) bool {
 		ownerRefs := addOwnerReference(obj.GetOwnerReferences(), controllerRef)
 		obj.SetOwnerReferences(ownerRefs)
 		return true
@@ -106,7 +110,7 @@ func (m *ControllerRevisionManager) adoptControllerRevision(obj *v1alpha1.Contro
 
 func (m *ControllerRevisionManager) releaseControllerRevision(obj *v1alpha1.ControllerRevision) error {
 	klog.InfoS("Releasing ControllerRevision", "kind", m.parentKind.Kind, "controller", klog.KRef(m.Controller.GetNamespace(), m.Controller.GetName()), "object", klog.KObj(obj))
-	_, err := m.client.UpdateWithRetries(obj, func(obj *v1alpha1.ControllerRevision) bool {
+	_, err := m.UpdateWithRetries(obj, func(obj *v1alpha1.ControllerRevision) bool {
 		ownerRefs := removeOwnerReference(obj.GetOwnerReferences(), m.Controller.GetUID())
 		obj.SetOwnerReferences(ownerRefs)
 		return true
@@ -116,4 +120,29 @@ func (m *ControllerRevisionManager) releaseControllerRevision(obj *v1alpha1.Cont
 		return nil
 	}
 	return err
+}
+
+func (c *ControllerRevisionManager) UpdateWithRetries(orig *v1alpha1.ControllerRevision, updateFn func(*v1alpha1.ControllerRevision) bool) (*v1alpha1.ControllerRevision, error) {
+	key := types.NamespacedName{
+		Namespace: orig.GetNamespace(),
+		Name:      orig.GetName(),
+	}
+	var current v1alpha1.ControllerRevision
+	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		err := c.k8sClient.Get(context.Background(), key, &current)
+		if err != nil {
+			return err
+		}
+		if current.GetUID() != orig.GetUID() {
+			return apierrors.NewGone(fmt.Sprintf("can't update ControllerRevision %v/%v: original object is gone: got uid %v, want %v", orig.GetNamespace(), orig.GetName(), current.GetUID(), orig.GetUID()))
+		}
+		if changed := updateFn(&current); !changed {
+			// There's nothing to do.
+			return nil
+		}
+		err = c.k8sClient.Update(context.Background(), &current)
+		return err
+	})
+
+	return &current, err
 }

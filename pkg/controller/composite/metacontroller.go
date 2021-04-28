@@ -35,10 +35,7 @@ import (
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/tools/cache"
 	"metacontroller.io/pkg/apis/metacontroller/v1alpha1"
-	mcclientset "metacontroller.io/pkg/client/generated/clientset/internalclientset"
-	mclisters "metacontroller.io/pkg/client/generated/lister/metacontroller/v1alpha1"
 )
 
 type Metacontroller struct {
@@ -49,11 +46,6 @@ type Metacontroller struct {
 	dynInformers  *dynamicinformer.SharedInformerFactory
 	eventRecorder record.EventRecorder
 
-	mcClient mcclientset.Interface
-
-	revisionLister   mclisters.ControllerRevisionLister
-	revisionInformer cache.SharedIndexInformer
-
 	parentControllers map[string]*parentController
 
 	stopCh, doneCh chan struct{}
@@ -61,18 +53,13 @@ type Metacontroller struct {
 	numWorkers int
 }
 
-func NewMetacontroller(controllerContext common.ControllerContext, mcClient mcclientset.Interface, numWorkers int) *Metacontroller {
+func NewMetacontroller(controllerContext common.ControllerContext, k8sClient client.Client, numWorkers int) *Metacontroller {
 	mc := &Metacontroller{
-		k8sClient:     controllerContext.K8sClient,
+		k8sClient:     k8sClient,
 		resources:     controllerContext.Resources,
 		dynClient:     controllerContext.DynClient,
 		dynInformers:  controllerContext.DynInformers,
 		eventRecorder: controllerContext.EventRecorder,
-
-		mcClient: mcClient,
-
-		revisionLister:   controllerContext.McInformerFactory.Metacontroller().V1alpha1().ControllerRevisions().Lister(),
-		revisionInformer: controllerContext.McInformerFactory.Metacontroller().V1alpha1().ControllerRevisions().Informer(),
 
 		parentControllers: make(map[string]*parentController),
 
@@ -147,12 +134,11 @@ func (mc *Metacontroller) reconcileCompositeController(cc *v1alpha1.CompositeCon
 	}
 
 	pc, err := newParentController(
+		mc.k8sClient,
 		mc.resources,
 		mc.dynClient,
 		mc.dynInformers,
 		mc.eventRecorder,
-		mc.mcClient,
-		mc.revisionLister,
 		cc,
 		mc.numWorkers)
 	if err != nil {

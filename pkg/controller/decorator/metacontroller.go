@@ -54,9 +54,9 @@ type Metacontroller struct {
 	numWorkers int
 }
 
-func NewMetacontroller(controllerContext common.ControllerContext, numWorkers int) *Metacontroller {
+func NewMetacontroller(controllerContext common.ControllerContext, k8sClient client.Client, numWorkers int) *Metacontroller {
 	mc := &Metacontroller{
-		k8sClient:     controllerContext.K8sClient,
+		k8sClient:     k8sClient,
 		resources:     controllerContext.Resources,
 		dynClient:     controllerContext.DynClient,
 		dynInformers:  controllerContext.DynInformers,
