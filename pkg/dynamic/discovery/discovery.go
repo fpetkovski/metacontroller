@@ -199,6 +199,16 @@ func (rm *ResourceMap) HasSynced() bool {
 	return rm.groupVersions != nil
 }
 
+func (rm *ResourceMap) WaitForSync()  {
+	ticker := time.Tick(1 * time.Second)
+	for {
+		<-ticker
+		if rm.HasSynced() {
+			return
+		}
+	}
+}
+
 func NewResourceMap(discoveryClient discovery.DiscoveryInterface) *ResourceMap {
 	return &ResourceMap{
 		discoveryClient: discoveryClient,

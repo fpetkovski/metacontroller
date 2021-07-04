@@ -147,7 +147,7 @@ func (mc *Metacontroller) reconcileCompositeController(cc *v1alpha1.CompositeCon
 		delete(mc.parentControllers, cc.Name)
 	}
 
-	pc, err := newParentController(
+	pc, err := NewParentController(
 		mc.resources,
 		mc.dynClient,
 		mc.dynInformers,
