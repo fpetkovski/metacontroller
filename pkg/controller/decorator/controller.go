@@ -82,7 +82,7 @@ type decoratorController struct {
 	customize customize.Manager
 }
 
-func newDecoratorController(
+func NewDecoratorController(
 	resources *dynamicdiscovery.ResourceMap,
 	dynClient *dynamicclientset.Clientset,
 	dynInformers *dynamicinformer.SharedInformerFactory,
@@ -143,7 +143,7 @@ func newDecoratorController(
 	// Create informers for all parent and child resources.
 	defer func() {
 		if newErr != nil {
-			// If newDecoratorController fails, Close() any informers we created
+			// If NewDecoratorController fails, Close() any informers we created
 			// since Stop() will never be called.
 			for _, informer := range c.childInformers {
 				informer.Close()

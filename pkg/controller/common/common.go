@@ -123,6 +123,10 @@ func (controllerContext ControllerContext) Stop() {
 	controllerContext.Broadcaster.Shutdown()
 }
 
+func (controllerContext ControllerContext) WaitForSync() {
+	controllerContext.Resources.WaitForSync()
+}
+
 // GroupVersionKind is metacontroller wrapper around schema.GroupVersionKind
 // implementing encoding.TextMarshaler and encoding.TextUnmarshaler
 type GroupVersionKind struct {
